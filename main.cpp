@@ -1,6 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <cstdlib>
 #include <thread>
+#include <new>
 
 static void count_odd(unsigned char* start, size_t count, uint32_t *result)
 {
@@ -9,14 +10,34 @@ static void count_odd(unsigned char* start, size_t count, uint32_t *result)
 			(*result)++;
 }
 
+struct unpadded
+{
+	uint32_t val;
+};
+
+#if defined __GNUC__ && __GNUC__ < 12
+constexpr auto cacheline = 64;
+#else
+constexpr auto cacheline = std::hardware_destructive_interference_size;
+#endif
+
+static_assert(cacheline > sizeof(uint32_t));
+struct padded
+{
+	uint32_t val;
+	// Pad by cacheline size
+	uint8_t pad[cacheline - sizeof(uint32_t)];
+};
+
+template<typename T>
 static void BM_FalseShare(benchmark::State& state) {
-	int cores = 8;
-	auto res_cont = std::make_unique<uint8_t[]>(64 + cores * sizeof(uint32_t));
-	auto aligned = (uintptr_t)res_cont.get() & (~64ULL);
-	uint32_t *results = reinterpret_cast<uint32_t *>(aligned); 
+	int cores = state.range(0);
+	auto res_cont = std::make_unique<uint8_t[]>(cacheline + cores * sizeof(T));
+	auto aligned = (uintptr_t)res_cont.get() & (~static_cast<uintptr_t>(cacheline));
+	T *results = reinterpret_cast<T *>(aligned);
 	//uint32_t *results = std::aligned_alloc(64, cores * sizeof(uint32_t));
 	
-	int size = 1024*1024*4;
+	int size = 1024*1024*16;
 	int chunk = size / cores;
 	int last_chunk = size - (chunk * (cores - 1));
 	auto data = std::make_unique<uint8_t[]>(size);
@@ -28,55 +49,21 @@ static void BM_FalseShare(benchmark::State& state) {
 		tvec.reserve(cores);
 		for (size_t i = 0; i < cores - 1; i++)
 		{
-			tvec.push_back(std::jthread(count_odd, data.get() + (chunk * i), chunk, &(results[i])));
+			tvec.push_back(std::jthread(count_odd, data.get() + (chunk * i), chunk, &(results[i].val)));
 		}
-		tvec.push_back(std::jthread(count_odd, data.get() + (chunk * (cores - 1)), last_chunk, &(results[cores - 1])));
+		tvec.push_back(std::jthread(count_odd, data.get() + (chunk * (cores - 1)), last_chunk, &(results[cores - 1].val)));
 		for (size_t i = 0; i < cores; i++)
 		{
-			//threads[i].join();
-			benchmark::DoNotOptimize(results[i]);
-		}
-	}
-}
-
-struct padded
-{
-	uint32_t val;
-	uint8_t pad[60];
-};
-
-static void BM_NoShare(benchmark::State& state) {
-	int cores = 8;
-	auto res_cont = std::make_unique<uint8_t[]>(64 + cores * sizeof(padded));
-	auto aligned = (uintptr_t)res_cont.get() & (~64ULL);
-	padded *results = reinterpret_cast<padded *>(aligned); 
-	//uint32_t *results = std::aligned_alloc(64, cores * sizeof(uint32_t));
-	
-	int size = 1024*1024*4;
-	int chunk = size / cores;
-	int last_chunk = size - (chunk * (cores - 1));
-	auto data = std::make_unique<uint8_t[]>(size);
-	for (size_t i = 0; i < size; i++)
-		data[i] = i % 256;
-    for (auto _ : state)
-	{
-		std::vector<std::jthread> threads;
-		threads.reserve(cores);
-		//threads.clear();
-		for (size_t i = 0; i < cores - 1; i++)
-			threads.emplace_back(count_odd, data.get() + (chunk * i), chunk, &(results[i].val));
-		threads.emplace_back(count_odd, data.get() + (chunk * (cores - 1)), last_chunk, &(results[cores - 1].val));
-		for (size_t i = 0; i < cores; i++)
-		{
-			//threads[i].join();
 			benchmark::DoNotOptimize(results[i].val);
 		}
 	}
 }
 
 // Register the function as a benchmark
-BENCHMARK(BM_FalseShare);
+BENCHMARK(BM_FalseShare<padded>)->Arg(1)->Arg(2)->Arg(4)->Arg(6)->Arg(8);
+BENCHMARK(BM_FalseShare<unpadded>)->Arg(1)->Arg(2)->Arg(4)->Arg(6)->Arg(8);
 
-BENCHMARK(BM_NoShare);
+
+//BENCHMARK(BM_NoShare);
 
 BENCHMARK_MAIN();
