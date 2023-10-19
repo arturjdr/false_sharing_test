@@ -2,11 +2,13 @@
 #include <cstdlib>
 #include <thread>
 #include <new>
+#include <stdexcept>
+#include <iostream>
 
 static void count_odd(unsigned char* start, size_t count, uint32_t *result)
 {
 	for (size_t i = 0; i < count; i++)
-		if (start + i != 0)
+		if ((start[i] % 2) != 0)
 			(*result)++;
 }
 
@@ -47,14 +49,29 @@ static void BM_FalseShare(benchmark::State& state) {
 	{
 		std::vector<std::jthread> tvec;
 		tvec.reserve(cores);
-		for (size_t i = 0; i < cores - 1; i++)
 		{
-			tvec.push_back(std::jthread(count_odd, data.get() + (chunk * i), chunk, &(results[i].val)));
+			for (size_t i = 0; i < cores - 1; i++)
+			{
+				results[i].val = 0;
+				tvec.push_back(std::jthread(count_odd, data.get() + (chunk * i), chunk, &(results[i].val)));
+			}
+			results[cores - 1].val = 0;
+			tvec.push_back(std::jthread(count_odd, data.get() + (chunk * (cores - 1)), last_chunk, &(results[cores - 1].val)));
+			for (size_t i = 0; i < cores; i++)
+			{
+				benchmark::DoNotOptimize(results[i].val);
+			}
 		}
-		tvec.push_back(std::jthread(count_odd, data.get() + (chunk * (cores - 1)), last_chunk, &(results[cores - 1].val)));
+		size_t total = 0;
 		for (size_t i = 0; i < cores; i++)
 		{
-			benchmark::DoNotOptimize(results[i].val);
+			tvec[i].join();
+			total += results[i].val;
+		}
+		if (total != size / 2)
+		{
+			std::cout << "Expected: " << size / 2 << " Total: " << total << std::endl;
+			throw std::runtime_error("Sum not as expected!");
 		}
 	}
 }
@@ -63,7 +80,5 @@ static void BM_FalseShare(benchmark::State& state) {
 BENCHMARK(BM_FalseShare<padded>)->Arg(1)->Arg(2)->Arg(4)->Arg(6)->Arg(8);
 BENCHMARK(BM_FalseShare<unpadded>)->Arg(1)->Arg(2)->Arg(4)->Arg(6)->Arg(8);
 
-
-//BENCHMARK(BM_NoShare);
 
 BENCHMARK_MAIN();
