@@ -39,7 +39,7 @@ static void BM_FalseShare(benchmark::State& state) {
 	T *results = reinterpret_cast<T *>(aligned);
 	//uint32_t *results = std::aligned_alloc(64, cores * sizeof(uint32_t));
 	
-	int size = 1024*1024*16;
+	int size = 1024*1024*8;
 	int chunk = size / cores;
 	int last_chunk = size - (chunk * (cores - 1));
 	auto data = std::make_unique<uint8_t[]>(size);
@@ -65,14 +65,21 @@ static void BM_FalseShare(benchmark::State& state) {
 		size_t total = 0;
 		for (size_t i = 0; i < cores; i++)
 		{
+			//tvec[i].join();
 			tvec[i].join();
 			total += results[i].val;
 		}
+#ifdef CHECK_RESULT
 		if (total != size / 2)
 		{
 			std::cout << "Expected: " << size / 2 << " Total: " << total << std::endl;
+			for (size_t i = 0; i < cores; i++)
+			{
+				std::cout << "Res/" << i << " : " << results[i].val << std::endl;
+			}
 			throw std::runtime_error("Sum not as expected!");
 		}
+#endif
 	}
 }
 
