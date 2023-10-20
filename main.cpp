@@ -35,7 +35,7 @@ template<typename T>
 static void BM_FalseShare(benchmark::State& state) {
 	int cores = state.range(0);
 	auto res_cont = std::make_unique<uint8_t[]>(cacheline + cores * sizeof(T));
-	auto aligned = (uintptr_t)res_cont.get() & (~static_cast<uintptr_t>(cacheline));
+	auto aligned = ((uintptr_t)res_cont.get() & (~static_cast<uintptr_t>(cacheline))) + cacheline;
 	T *results = reinterpret_cast<T *>(aligned);
 	//uint32_t *results = std::aligned_alloc(64, cores * sizeof(uint32_t));
 	
