@@ -4,6 +4,8 @@ Requires cmake 3.20 or later, and C++20 compiler.
 
 `git submodule update`
 
+`cd ../`
+
 `mkdir build`
 
 `cd build`
